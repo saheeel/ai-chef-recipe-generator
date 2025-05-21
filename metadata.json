@@ -1,0 +1,5 @@
+{
+  "name": "AI Chef Recipe Generator",
+  "description": "An app that generates delicious recipes based on your food cravings using AI. Tell the AI what you feel like eating, and it will craft a unique recipe for you.",
+  "requestFramePermissions": []
+}
