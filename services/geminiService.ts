@@ -2,18 +2,21 @@
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { RecipeData, ClarificationResponse, GenerateRecipeResult } from '../types';
 
-// Initialize Gemini AI client directly with process.env.API_KEY
-// Assuming API_KEY is pre-configured and valid as per guidelines.
-// The '!' asserts that process.env.API_KEY is non-null. This relies on external configuration.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! }); 
+let aiClientInstance: GoogleGenAI | null = null;
 
-export const generateRecipe = async (foodDesire: string): Promise<GenerateRecipeResult> => {
-  // Check for API key at the time of function call
+const getAiClient = (): GoogleGenAI => {
   if (!process.env.API_KEY) {
     // This error should be caught by App.tsx and displayed to the user.
-    throw new Error("API Key for Gemini is not configured. Cannot generate recipes. Please ensure the API_KEY environment variable is set.");
+    throw new Error("API Key for Gemini is not configured. Cannot generate recipes. Please ensure the API_KEY environment variable is set in your deployment environment.");
   }
+  if (!aiClientInstance) {
+    aiClientInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  }
+  return aiClientInstance;
+};
 
+export const generateRecipe = async (foodDesire: string): Promise<GenerateRecipeResult> => {
+  const ai = getAiClient(); // Get or initialize the client
   const model = ai.models;
 
   const prompt = `
@@ -68,7 +71,6 @@ If asking for clarification, ensure the message is helpful and guides the user.
 
     let jsonStr = response.text.trim();
     
-    // Backup: Remove potential markdown fences if present, though responseMimeType: "application/json" should prevent this.
     const fenceRegex = /^```(?:json)?\s*\n?(.*?)\n?\s*```$/si;
     const match = jsonStr.match(fenceRegex);
     if (match && match[1]) {
@@ -79,14 +81,12 @@ If asking for clarification, ensure the message is helpful and guides the user.
       const parsedData = JSON.parse(jsonStr) as GenerateRecipeResult;
 
       if (parsedData.needsClarification === true) {
-        // It's a ClarificationResponse
         if (typeof (parsedData as ClarificationResponse).clarificationMessage === 'string') {
           return parsedData as ClarificationResponse;
         } else {
           throw new Error("AI requested clarification but message is missing or invalid.");
         }
       } else {
-        // It should be RecipeData
         const recipe = parsedData as RecipeData;
         if (!recipe.title || !recipe.ingredients || !recipe.instructions) {
           console.error("AI response is missing essential recipe fields. Raw:", jsonStr, "Parsed:", recipe);
@@ -96,19 +96,17 @@ If asking for clarification, ensure the message is helpful and guides the user.
       }
     } catch (e: any) {
       console.error("Failed to parse JSON response from AI or validate structure:", e.message, "Raw response text from AI:", response.text);
-      // Include more details from the AI's raw response if possible
       let detail = e.message;
-      if (response && response.text && response.text.length < 200) { // Avoid logging overly long raw texts
+      if (response && response.text && response.text.length < 200) { 
         detail += ` (AI raw text: ${response.text.substring(0,100)}...)`;
       }
       throw new Error(`Failed to process or parse recipe data from AI. ${detail}`);
     }
   } catch (error: any) {
     console.error("Error generating recipe with Gemini API:", error);
-    if (error.message && error.message.toLowerCase().includes("api key")) { // Broader check for API key issues
-        throw new Error("Invalid or missing API Key for Gemini. Please check your configuration.");
+    if (error.message && (error.message.toLowerCase().includes("api key") || error.message.toLowerCase().includes("permission denied"))) { 
+        throw new Error("Invalid, missing, or improperly configured API Key for Gemini. Please check your deployment environment's API key configuration.");
     }
-    // Add more context to the error thrown
     const errorMessage = error.message || 'Unknown API error';
     const errorDetails = error.details || (error.response ? JSON.stringify(error.response.data) : '');
     throw new Error(`Failed to generate recipe: ${errorMessage}${errorDetails ? ` Details: ${errorDetails}` : ''}`);
