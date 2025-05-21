@@ -1,23 +1,26 @@
+
 import React, { useState, useCallback } from 'react';
 import Header from './components/Header';
-// import Footer from './components/Footer'; // Footer removed from design
 import UserInput from './components/UserInput';
 import RecipeDisplay from './components/RecipeDisplay';
 import LoadingIndicator from './components/LoadingIndicator';
 import ErrorDisplay from './components/ErrorDisplay';
-import { RecipeData } from './types';
+import ClarificationPrompt from './components/ClarificationPrompt'; // Import new component
+import { RecipeData, GenerateRecipeResult, ClarificationResponse } from './types';
 import { generateRecipe } from './services/geminiService';
 
 const App: React.FC = () => {
   const [recipe, setRecipe] = useState<RecipeData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [clarificationMessage, setClarificationMessage] = useState<string | null>(null);
   const [showRecipeSection, setShowRecipeSection] = useState<boolean>(false);
 
   const navigateToHome = useCallback(() => {
     setRecipe(null);
     setError(null);
     setIsLoading(false);
+    setClarificationMessage(null);
     setShowRecipeSection(false);
   }, []);
 
@@ -25,14 +28,18 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setRecipe(null);
-    setShowRecipeSection(true); // Show the section where results will appear
+    setClarificationMessage(null);
+    setShowRecipeSection(true);
 
     try {
-      if (!process.env.API_KEY) {
-        throw new Error("API Key for Gemini is not configured. Please set the process.env.API_KEY environment variable.");
+      // API Key check is now solely within generateRecipe service
+      const result: GenerateRecipeResult = await generateRecipe(foodDesire);
+
+      if (result.needsClarification === true) {
+        setClarificationMessage((result as ClarificationResponse).clarificationMessage);
+      } else {
+        setRecipe(result as RecipeData);
       }
-      const generatedRecipe = await generateRecipe(foodDesire);
-      setRecipe(generatedRecipe);
     } catch (err: any) {
       setError(err.message || 'An unknown error occurred while fetching the recipe.');
       console.error("Error in handleGetRecipe:", err);
@@ -62,12 +69,12 @@ const App: React.FC = () => {
         {showRecipeSection && (
           <div className="mt-12 w-full max-w-3xl">
             {isLoading && <LoadingIndicator />}
+            {clarificationMessage && !isLoading && !error && <ClarificationPrompt message={clarificationMessage} />}
             {error && !isLoading && <ErrorDisplay message={error} />}
-            {recipe && !isLoading && !error && <RecipeDisplay recipe={recipe} />}
+            {recipe && !isLoading && !error && !clarificationMessage && <RecipeDisplay recipe={recipe} />}
           </div>
         )}
       </main>
-      {/* Footer component removed */}
     </div>
   );
 };
